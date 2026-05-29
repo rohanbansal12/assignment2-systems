@@ -1,0 +1,595 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{graphicx}
+\usepackage{microtype}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!55!black,
+  urlcolor=blue!55!black,
+  citecolor=blue!55!black
+}
+
+\setlist[enumerate,1]{label=(\alph*), leftmargin=2.2em}
+\setlist[itemize]{leftmargin=1.6em}
+\setlength{\emergencystretch}{3em}
+\graphicspath{{figures/}}
+
+\newcommand{\todoanswer}[1]{%
+  \par\smallskip
+  \noindent\colorbox{yellow!18}{%
+    \parbox{\dimexpr\linewidth-2\fboxsep\relax}{\textbf{TODO.} #1}%
+  }%
+  \par\smallskip
+}
+\newcommand{\maybeincludegraphics}[2]{%
+  \IfFileExists{#1}{%
+    \includegraphics[width=\linewidth]{#1}%
+  }{%
+    \fbox{\parbox[c][0.28\textheight][c]{0.92\linewidth}{\centering Missing figure file: \texttt{\detokenize{#1}}\\#2}}%
+  }%
+}
+\newcommand{\codepath}[1]{\texttt{#1}}
+\newcommand{\testcmd}[1]{\texttt{#1}}
+
+\title{CS336 Assignment 2 Systems: Writeup}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Profiling and Benchmarking}
+
+\subsection{Problem (benchmarking\_script): Benchmarking Script}
+
+\begin{enumerate}
+  \item \textbf{Script.}
+  Implemented at Problem (benchmarking\_script).
+
+  \item \textbf{Timings with warmup.}
+  \begin{table}[H]
+    \centering
+    \caption{End-to-end benchmark timings with 5 warmup steps and 10 measured steps.}
+    \begin{tabular}{lrrrrrr}
+      \toprule
+      Model & Context & Forward ms & Backward ms & Optimizer ms & Train step ms & Train std ms \\
+      \midrule
+      small & 512 & 23.775 & 52.262 & 7.996 & 84.032 & 3.571 \\
+      medium & 512 & 70.674 & 147.435 & 20.039 & 238.148 & 5.553 \\
+      large & 512 & 171.237 & 344.689 & 45.678 & 561.603 & 1.322 \\
+      xl & 512 & 491.891 & 999.795 & 189.236 & 1680.922 & 4.200 \\
+      10B & 512 & 1869.974 & OOM & OOM & OOM & OOM \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+  These timings were measured on one NVIDIA H100 NVL in FP32 with batch size 4 and vocabulary size 10,000; the backward and optimizer columns are computed as deltas from the forward+backward and full train-step runs. Variability was generally small relative to the mean, though the small and medium backward/train runs had a few-millisecond spread; the 10B forward pass fit, but forward+backward and full training OOMed on the 93 GiB GPU.
+
+  \item \textbf{Timings without warmup.}
+  \begin{table}[H]
+    \centering
+    \caption{End-to-end benchmark timings with no warmup.}
+    \begin{tabular}{lrrrr}
+      \toprule
+      Model & Forward ms & Backward ms & Train step ms & Std ms \\
+      \midrule
+      small & 44.150 & 59.894 & 111.300 & 102.515 \\
+      medium & 88.424 & 156.985 & 264.789 & 92.256 \\
+      large & 186.402 & 353.638 & 587.421 & 88.090 \\
+      xl & 508.707 & 1001.157 & 1692.820 & 70.337 \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+  Without warmup, the first measured iteration includes one-time overheads such as CUDA library initialization and kernel setup, which inflates the mean and creates much larger standard deviations than the warmed measurements. The effect is most dramatic for the smaller models, where the one-time overhead is large relative to steady-state compute time.
+\end{enumerate}
+
+\subsection{Problem (nsys\_profile): Nsight Systems Profiling}
+
+For Nsight Systems profiling, we will use the medium and large model sizes. The context lengths are 128, 512, and the largest power-of-two context length that fit a full FP32 training step on one NVIDIA H100 NVL with batch size 4 and 5 warmup steps: 2048 for medium and 1024 for large. The next larger power of two for the large model, 2048, OOMed during attention.
+
+\begin{table}[H]
+  \centering
+  \caption{Selected Nsight profiling configurations.}
+  \begin{tabular}{lrrr}
+    \toprule
+    Model & Context 1 & Context 2 & Max fitting power-of-two context \\
+    \midrule
+    medium & 128 & 512 & 2048 \\
+    large & 128 & 512 & 1024 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{enumerate}
+  \item \textbf{Forward pass time.}
+  \begin{table}[H]
+    \centering
+    \caption{Nsight forward-pass wall times.}
+    \begin{tabular}{lrr}
+      \toprule
+      Model & Context length & Forward time ms \\
+      \midrule
+      medium & 128 & 54.426 \\
+      medium & 512 & 69.802 \\
+      medium & 2048 & 438.232 \\
+      large & 128 & 81.218 \\
+      large & 512 & 177.258 \\
+      large & 1024 & 386.113 \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+  At context length 512, the Nsight timings are close to the Python benchmark timings from Problem (benchmarking\_script): 69.802 ms versus 70.674 ms for medium, and 177.258 ms versus 171.237 ms for large.
+
+  \item \textbf{Dominant CUDA kernels.}
+  \begin{table}[H]
+    \centering
+    \caption{Dominant CUDA kernels in the forward pass.}
+    \begin{tabular}{lrlrl}
+      \toprule
+      Model & Context length & Forward dominant kernel & Launches & Same kernel dominates forward+backward? \\
+      \midrule
+      medium & 128 & \texttt{sm80\_xmma\_gemm...\_128x64...\_tn...\_cublas} & 48 & no \\
+      medium & 512 & \texttt{sm80\_xmma\_gemm...\_128x128...\_tn...\_cublas} & 169 & yes \\
+      medium & 2048 & \texttt{sm80\_xmma\_gemm...\_128x128...\_tn...\_cublas} & 193 & yes \\
+      large & 128 & \texttt{sm80\_xmma\_gemm...\_64x64...\_tn...\_cublas} & 73 & no \\
+      large & 512 & \texttt{sm80\_xmma\_gemm...\_128x64...\_tn...\_cublas} & 72 & no \\
+      large & 1024 & \texttt{sm80\_xmma\_gemm...\_128x128...\_tn...\_cublas} & 145 & yes \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+  The dominant forward CUDA kernel was a cuBLAS FP32 SGEMM/XMMA matrix-multiply kernel in every profile, which means the forward pass is mostly spending its GPU time in the linear layers and attention matrix multiplications rather than in Python overhead or small elementwise operations. In the forward+backward profiles, the same exact kernel still dominates for the larger context settings, while the shorter-context runs are dominated by CUTLASS SGEMM kernels from backward gradient matrix multiplications; this is still matrix-multiply work, but with different shapes and launch implementations.
+
+  \item \textbf{Non-matmul kernels.}
+  Besides matrix multiplies, the forward pass spends noticeable CUDA time in elementwise add, multiply, and divide kernels; causal-mask \texttt{where} kernels; softmax-related \texttt{exp} and reduction kernels; normalization reductions; and tensor copy/concatenation kernels. These kernels are much smaller than GEMMs individually, but at long context lengths they become visible because attention masking and softmax operate over the full context-by-context attention matrix; for example, \texttt{medium} at context length 2048 had top non-matmul kernels around 31.437 ms for an elementwise binary operation, 26.477 ms for \texttt{where}, 25.359 ms for add, and about 14.5 ms for softmax-related multiply/\texttt{exp}.
+
+  \item \textbf{Full training step profile.}
+  \begin{table}[H]
+    \centering
+    \caption{Matmul-like CUDA kernel fraction in forward-only versus full training profiles.}
+    \begin{tabular}{lrrr}
+      \toprule
+      Model & Context length & Forward matmul-like \% & Train matmul-like \% \\
+      \midrule
+      medium & 128 & 80.2 & 54.4 \\
+      medium & 512 & 78.2 & 70.4 \\
+      medium & 2048 & 64.2 & 61.9 \\
+      large & 128 & 84.5 & 58.9 \\
+      large & 512 & 83.2 & 74.9 \\
+      large & 1024 & 77.7 & 73.2 \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+  Full training is still matrix-multiply-heavy, but it is less dominated by matmul than forward-only inference. The remaining time comes from backward-pass overhead and AdamW optimizer kernels, especially elementwise parameter updates, reductions, masking/softmax work, and gradient-related operations; the drop is largest at short context lengths where fixed non-matmul overheads are larger relative to the GEMM work.
+
+  \item \textbf{Softmax vs. matmul in attention.}
+  \begin{table}[H]
+    \centering
+    \caption{Forward-pass CUDA kernel time inside attention NVTX ranges.}
+    \begin{tabular}{lrrrr}
+      \toprule
+      Model & Context length & QK scores matmul ms & Softmax ms & AV value matmul ms \\
+      \midrule
+      medium & 128 & 0.273 & 0.586 & 0.312 \\
+      medium & 512 & 3.515 & 5.970 & 2.008 \\
+      medium & 2048 & 51.766 & 89.733 & 31.467 \\
+      large & 128 & 0.505 & 1.082 & 0.564 \\
+      large & 512 & 6.985 & 11.968 & 4.517 \\
+      large & 1024 & 24.932 & 43.566 & 15.551 \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+  In these profiles, the softmax range is comparable to, and often slightly larger than, the two attention matmul ranges combined. This is surprising from FLOP counts alone, since the QK and AV matmuls do more arithmetic by scaling with the head dimension, but our softmax/masking path is unfused and memory-, reduction-, and \texttt{exp}-heavy, while the matmuls use highly optimized GEMM kernels.
+\end{enumerate}
+
+\subsection{Problem (mixed\_precision\_accumulation): Mixed-Precision Accumulation}
+
+\begin{verbatim}
+tensor(10.0001)
+tensor(9.9531, dtype=torch.float16)
+tensor(10.0021)
+tensor(10.0021)
+\end{verbatim}
+
+The first loop accumulates entirely in FP32, so it has only small rounding error, while the second loop accumulates in FP16 and pays the larger FP16 rounding cost at every addition, leading to a noticeably larger final error. The third and fourth loops are effectively the same for accumulation accuracy: the values being added start in FP16, but the running sum is FP32, so the repeated additions are performed in the wider accumulator and the remaining error mostly comes from the FP16 representation of the addends rather than from repeatedly accumulating in FP16.
+
+\subsection{Problem (benchmarking\_mixed\_precision): Benchmarking Mixed Precision}
+
+\begin{enumerate}
+  \item \textbf{Toy model dtypes under FP16 autocast.}
+  \begin{table}[H]
+    \centering
+    \caption{Toy model datatypes under FP16 autocast.}
+    \begin{tabular}{ll}
+      \toprule
+      Component & Datatype \\
+      \midrule
+      Model parameters in autocast context & \texttt{torch.float32} \\
+      Output of \texttt{fc1} & \texttt{torch.float16} \\
+      Output of \texttt{LayerNorm} & \texttt{torch.float32} \\
+      Predicted logits & \texttt{torch.float16} \\
+      Loss & \texttt{torch.float32} \\
+      Gradients & \texttt{torch.float32} \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  \item \textbf{LayerNorm precision sensitivity.}
+  LayerNorm is precision-sensitive mainly in the mean and variance reductions, plus the normalization step that subtracts the mean and divides by the square root of the variance. FP16 can lose accuracy or overflow/underflow in these operations, so autocast keeps LayerNorm in FP32 even though it casts linear-layer matmuls to FP16. BF16 reduces the overflow/underflow concern because it has FP32-like exponent range, but its mantissa is still low precision, so using FP32 for LayerNorm reductions can still improve numerical stability.
+
+  \item \textbf{BF16 mixed precision benchmark.}
+  \begin{table}[H]
+    \centering
+    \caption{FP32 vs. BF16 autocast forward/backward timing.}
+    \begin{tabular}{lrrrr}
+      \toprule
+      Model & FP32 forward ms & BF16 forward ms & FP32 backward ms & BF16 backward ms \\
+      \midrule
+      small & 23.816 & 10.252 & 75.753 & 33.473 \\
+      medium & 70.803 & 22.999 & 218.418 & 73.926 \\
+      large & 171.272 & 44.860 & 515.350 & 146.413 \\
+      xl & 490.574 & 97.248 & 1489.851 & 312.887 \\
+      10B & 1865.825 & 299.748 & \textsc{OOM} & \textsc{OOM} \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+  These timings use batch size 4, context length 512, 5 warmup steps, and 10 measured steps; the backward column measures the forward, loss, and backward pass together. BF16 autocast speeds up both forward and backward substantially, with forward speedup increasing from about 2.3x for small to 6.2x for 10B, and backward speedup increasing from about 2.3x for small to 4.8x for xl. The 10B backward runs OOM in both FP32 and BF16 because autocast reduces activation and matmul precision but leaves model parameters and gradients in FP32.
+\end{enumerate}
+
+\subsection{Problem (memory\_profiling): Memory Profiling}
+
+\begin{enumerate}
+  \item \textbf{Memory profiler timelines.}
+  \begin{figure}[H]
+    \centering
+    \maybeincludegraphics{figures/memory_xl_ctx128_forward.png}{Copy the forward-only memory\_viz screenshot here.}
+    \caption{Active memory timeline for the xl model, context length 128, forward-only.}
+  \end{figure}
+
+  \begin{figure}[H]
+    \centering
+    \maybeincludegraphics{figures/memory_xl_ctx128_train.png}{Copy the full-training-step memory\_viz screenshot here.}
+    \caption{Active memory timeline for the xl model, context length 128, full training step.}
+  \end{figure}
+
+  The peak is identified from the top of the active-memory curve in memory\_viz and cross-checked against \texttt{torch.cuda.max\_memory\_allocated()} from the benchmark JSON. The forward-only trace is mostly flat around the model-parameter footprint and peaks at 12.931 GiB, while the full training-step trace rises during the forward pass as activations are saved, peaks at 51.462 GiB, and then drops in stages during backward as saved tensors are freed.
+
+  \item \textbf{Peak memory by context length.}
+  \begin{table}[H]
+    \centering
+    \caption{Peak memory for xl model.}
+    \begin{tabular}{lrr}
+      \toprule
+      Context length & Forward peak GiB & Training step peak GiB \\
+      \midrule
+      128 & 12.931 & 51.462 \\
+      512 & 13.466 & 65.585 \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+  We use context length 512 instead of 2048 for the second row because the xl full training step at context length 2048 OOMs on the 93 GiB H100 with this implementation. Increasing the context length from 128 to 512 barely changes the forward-only peak, since inference does not save activations for backward, but it increases full-step peak memory from 51.462 GiB to 65.585 GiB because more activations are retained for the backward pass.
+
+  \item \textbf{Mixed precision memory.}
+  \begin{table}[H]
+    \centering
+    \caption{FP32 versus BF16 autocast peak memory for xl model.}
+    \begin{tabular}{lrrrr}
+      \toprule
+      Context length & FP32 forward GiB & BF16 forward GiB & FP32 train GiB & BF16 train GiB \\
+      \midrule
+      128 & 12.931 & 19.168 & 51.462 & 51.452 \\
+      512 & 13.466 & 19.426 & 65.585 & 62.718 \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+  BF16 autocast does not significantly reduce peak memory in these runs: the context-128 training peak is essentially unchanged, and the context-512 training peak drops by only about 2.9 GiB. Forward-only peak memory is actually higher under autocast, likely because model parameters remain FP32 while autocast may also keep lower-precision cached copies or temporaries; in full training, FP32 parameters, gradients, and optimizer state still dominate much of the footprint.
+
+  \item \textbf{Residual stream activation size.}
+  For the xl model in FP32, one residual-stream activation tensor has size $B \times T \times d_{\mathrm{model}} \times 4$ bytes, which is $4 \times 128 \times 2560 \times 4 / 1024^2 = 5$ MiB at context length 128 and $4 \times 512 \times 2560 \times 4 / 1024^2 = 20$ MiB at context length 512.
+
+  \item \textbf{Largest active memory allocations.}
+  At lower detail levels in memory\_viz, the largest visible thin bars for both context lengths are about 100 MiB. These are consistent with the xl model's large MLP weight matrices, since $d_{\mathrm{model}} \times d_{\mathrm{ff}} \times 4 = 2560 \times 10240 \times 4 = 100$ MiB; the stack traces point back to model parameter allocations rather than residual-stream activations, which are only 5 MiB at context length 128 and 20 MiB at context length 512.
+
+  \item \textbf{Nsight memory profiling.}
+  \todoanswer{Insert Nsight screenshots and summarize the five largest saved-for-backward contributors, percentages, and gradient tensor memory calculation.}
+\end{enumerate}
+
+\section{Single-GPU Memory}
+
+\subsection{Problem (gradient\_checkpointing): Memory-Optimal Gradient Checkpointing}
+
+\begin{enumerate}
+  \item \textbf{Asymptotically optimal strategy.}
+  \todoanswer{Describe the checkpoint nesting strategy, asymptotic peak activation memory, compute cost, and include a short code sketch.}
+
+  \item \textbf{Best one-level strategy for xl.}
+  \begin{table}[H]
+    \centering
+    \caption{One-level checkpointing block-size sweep for xl, batch size 4, context length 2048.}
+    \begin{tabular}{lrr}
+      \toprule
+      Checkpoint block size & Peak memory GiB & Relative step time \\
+      \midrule
+      smaller than chosen & -- & -- \\
+      chosen & -- & -- \\
+      larger than chosen & -- & -- \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+  \todoanswer{Add 3--5 sentences explaining the selected block size and measured validation.}
+\end{enumerate}
+
+\section{GPU Kernels}
+
+\subsection{Problem (pytorch\_attention): PyTorch Attention Benchmarking}
+
+\begin{table}[H]
+  \centering
+  \caption{PyTorch attention timings and memory. Batch size 8, single head.}
+  \begin{tabular}{rrrrr}
+    \toprule
+    $d$ & Sequence length & Forward ms & Backward ms & Memory before backward GiB \\
+    \midrule
+    16 & 256 & -- & -- & -- \\
+    16 & 1024 & -- & -- & -- \\
+    16 & 4096 & -- & -- & -- \\
+    16 & 8192 & -- & -- & -- \\
+    16 & 16384 & -- & -- & -- \\
+    32 & 256 & -- & -- & -- \\
+    64 & 256 & -- & -- & -- \\
+    128 & 256 & -- & -- & -- \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+\todoanswer{Complete the full Cartesian-product table, mark OOM cases, include one memory accounting derivation, and write the 1--2 paragraph response.}
+
+\subsection{Problem (torch\_compile): Torch Compile}
+
+\begin{enumerate}
+  \item \textbf{Compiled attention.}
+  \begin{table}[H]
+    \centering
+    \caption{Compiled vs. uncompiled PyTorch attention.}
+    \resizebox{\textwidth}{!}{%
+    \begin{tabular}{rrrrr}
+      \toprule
+      $d$ & Sequence length & Uncompiled forward/backward ms & Compiled forward/backward ms & Speedup \\
+      \midrule
+      -- & -- & -- & -- & -- \\
+      \bottomrule
+    \end{tabular}
+    }
+  \end{table}
+
+  \item \textbf{Compiled Transformer.}
+  \begin{table}[H]
+    \centering
+    \caption{Compiled vs. vanilla Transformer benchmark.}
+    \resizebox{\textwidth}{!}{%
+    \begin{tabular}{lrrrr}
+      \toprule
+      Model & Vanilla forward ms & Compiled forward ms & Vanilla train step ms & Compiled train step ms \\
+      \midrule
+      small & -- & -- & -- & -- \\
+      medium & -- & -- & -- & -- \\
+      large & -- & -- & -- & -- \\
+      xl & -- & -- & -- & -- \\
+      \bottomrule
+    \end{tabular}
+    }
+  \end{table}
+\end{enumerate}
+
+\subsection{Problem (flash\_forward): FlashAttention-2 Forward Pass}
+
+\begin{enumerate}
+  \item \textbf{Pure PyTorch autograd function.}
+  \todoanswer{State implementation location and test result for \testcmd{uv run pytest -k test\_flash\_forward\_pass\_pytorch}.}
+
+  \item \textbf{Triton forward kernel.}
+  \todoanswer{State implementation location, tile sizes, and test result for \testcmd{uv run pytest -k test\_flash\_forward\_pass\_triton}.}
+
+  \item \textbf{Causal masking flag.}
+  \todoanswer{Describe causal masking implementation and any tests used to verify noncausal and causal behavior.}
+\end{enumerate}
+
+\subsection{Problem (flash\_backward): FlashAttention-2 Backward Pass}
+
+\todoanswer{State implementation location and test result for \testcmd{uv run pytest -k test\_flash\_backward}.}
+
+\subsection{Problem (flash\_benchmarking): FlashAttention-2 Benchmarking}
+
+\begin{table}[H]
+  \centering
+  \caption{FlashAttention-2 vs. PyTorch attention on one B200, batch size 1, causal masking.}
+  \resizebox{\textwidth}{!}{%
+  \begin{tabular}{rrrrrrr}
+    \toprule
+    Seq. len. & $d$ & Dtype & Impl. & Forward ms & Backward ms & Fwd+bwd ms \\
+    \midrule
+    128 & 16 & bf16 & Triton & -- & -- & -- \\
+    128 & 16 & fp32 & Triton & -- & -- & -- \\
+    128 & 16 & bf16 & PyTorch & -- & -- & -- \\
+    \bottomrule
+  \end{tabular}
+  }
+\end{table}
+\todoanswer{Complete the sweep over powers of two through sequence length 65536, $d \in \{16,\ldots,128\}$, and BF16/FP32.}
+
+\section{Distributed Data Parallel Training}
+
+\subsection{Problem (distributed\_communication\_single\_node): Distributed Communication (Single Node)}
+
+\begin{table}[H]
+  \centering
+  \caption{All-reduce runtime sweep for float32 tensors.}
+  \begin{tabular}{rrrr}
+    \toprule
+    Tensor size & Processes/GPUs & Backend & Runtime ms \\
+    \midrule
+    1 MB & 2 & NCCL & -- \\
+    10 MB & 2 & NCCL & -- \\
+    100 MB & 2 & NCCL & -- \\
+    1 GB & 2 & NCCL & -- \\
+    1 MB & 4 & NCCL & -- \\
+    1 MB & 6 & NCCL & -- \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+\todoanswer{Add plots if useful and 2--3 sentences about data size and GPU-count effects.}
+
+\subsection{Problem (naive\_ddp): Naive DDP}
+
+\todoanswer{State implementation location, adapter hooks, and result of \testcmd{uv run pytest tests/test\_ddp.py}.}
+
+\subsection{Problem (naive\_ddp\_benchmarking): Naive DDP Benchmarking}
+
+\todoanswer{Describe the 1 node x 2 GPU xl setup, total training-step time, and gradient communication time.}
+
+\subsection{Problem (minimal\_ddp\_flat\_benchmarking): Minimal DDP with Flat Gradients Benchmarking}
+
+\todoanswer{Report training-iteration time and communication time for a single flattened all-reduce, then compare against individual parameter all-reduces.}
+
+\subsection{Problem (ddp\_overlap\_individual\_parameters): DDP with Overlapping Individual Parameters}
+
+\todoanswer{State implementation location, hook strategy, adapter hooks, and repeated \testcmd{uv run pytest tests/test\_ddp.py} results.}
+
+\subsection{Problem (ddp\_overlap\_individual\_parameters\_benchmarking): DDP Overlapping Individual Parameters Benchmarking}
+
+\begin{enumerate}
+  \item \textbf{Runtime comparison.}
+  \todoanswer{Report overlapped DDP time per training iteration and compare with individual and flat all-reduce baselines.}
+
+  \item \textbf{Nsight comparison.}
+  \todoanswer{Insert two Nsight screenshots showing non-overlapped vs. overlapped gradient communication.}
+\end{enumerate}
+
+\section{Optimizer State Sharding}
+
+\subsection{Problem (optimizer\_state\_sharding): Optimizer State Sharding}
+
+\todoanswer{State implementation location, adapter hook, and repeated \testcmd{uv run pytest tests/test\_sharded\_optimizer.py} results.}
+
+\subsection{Problem (optimizer\_state\_sharding\_accounting): Optimizer State Sharding Accounting}
+
+\begin{enumerate}
+  \item \textbf{Peak memory breakdown.}
+  \begin{table}[H]
+    \centering
+    \caption{Optimizer state sharding memory accounting, 1 node x 2 GPUs, xl model.}
+    \begin{tabular}{lrrr}
+      \toprule
+      Setting & After init GiB & Before optimizer step GiB & After optimizer step GiB \\
+      \midrule
+      No sharding & -- & -- & -- \\
+      Sharded optimizer & -- & -- & -- \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+  \todoanswer{Add 2--3 sentences breaking down parameters, gradients, and optimizer states.}
+
+  \item \textbf{Training speed.}
+  \todoanswer{Report iteration timings with and without optimizer state sharding.}
+
+  \item \textbf{Comparison to ZeRO stage 1.}
+  \todoanswer{Summarize how this implementation differs from ZeRO-DP Pos, especially memory and communication volume.}
+\end{enumerate}
+
+\section{Fully-Sharded Data Parallel}
+
+\subsection{Problem (fsdp): Fully-Sharded Data Parallel}
+
+\todoanswer{State implementation location, layer wrapping/hook strategy, compute dtype behavior, adapter hook, and repeated \testcmd{uv run pytest tests/test\_fsdp.py} results.}
+
+\subsection{Problem (fsdp\_accounting): FSDP Accounting}
+
+\begin{enumerate}
+  \item \textbf{Expected memory savings.}
+  \todoanswer{Compute the expected peak memory savings relative to Section 6, ignoring preallocated all-gather buffers.}
+
+  \item \textbf{All-gather timing.}
+  \todoanswer{Report xl two-GPU profile timings and insert Nsight screenshots showing whether all-gather completes before forward computation needs the weights.}
+\end{enumerate}
+
+\section{Analyzing Parallelism Strategies}
+
+\subsection{Problem (alternate\_ring\_all\_reduce): Alternate Ring All-Reduce}
+
+\todoanswer{Answer in terms of $S$, $N$, and $W$, with a one-sentence justification.}
+
+\subsection{Problem (data\_parallel\_calcs): Data Parallel Calculations}
+
+\begin{enumerate}
+  \item \textbf{Backward FLOPs.}
+  \todoanswer{Give FLOPs in terms of $B$, $D$, $D_{\mathrm{FF}}$, and $N_{\mathrm{DP}}$.}
+
+  \item \textbf{Backward communication time.}
+  \todoanswer{Give communication time in terms of the relevant variables and $W$.}
+
+  \item \textbf{Communication bottleneck threshold.}
+  \todoanswer{Give the inequality for $N_{\mathrm{DP}}$ and a one-sentence justification.}
+\end{enumerate}
+
+\subsection{Problem (fsdp\_calcs): Fully Sharded Data Parallel Calculations}
+
+\begin{enumerate}
+  \item \textbf{Forward and backward FLOPs.}
+  \todoanswer{Give both FLOP expressions and justifications.}
+
+  \item \textbf{Forward and backward communication time.}
+  \todoanswer{Give both communication-time expressions and justifications.}
+
+  \item \textbf{Bottleneck thresholds.}
+  \todoanswer{Give inequalities for backward and forward bottlenecks.}
+\end{enumerate}
+
+\subsection{Problem (tp\_calcs): Tensor Parallel Calculations}
+
+\begin{enumerate}
+  \item \textbf{Backward pass equations.}
+  \todoanswer{Write the tensor-parallel backward equations producing $dW_1^{(i)}$, $dW_2^{(i)}$, $dW_3^{(i)}$, and $dx$.}
+
+  \item \textbf{Forward and backward FLOPs.}
+  \todoanswer{Give both FLOP expressions and one-sentence justifications.}
+
+  \item \textbf{Forward and backward communication time.}
+  \todoanswer{Give both communication-time expressions and one-sentence justifications.}
+
+  \item \textbf{Bottleneck thresholds.}
+  \todoanswer{Give inequalities for backward and forward bottlenecks.}
+\end{enumerate}
+
+\subsection{Problem (fsdp\_tp\_calcs): 2D Parallelism Calculations}
+
+\begin{enumerate}
+  \item \textbf{Forward FLOPs.}
+  \todoanswer{Give the FSDP+TP forward FLOP expression and justification.}
+
+  \item \textbf{Forward communication time with overlap.}
+  \todoanswer{Give the max of FSDP-axis and TP-axis communication costs.}
+
+  \item \textbf{Optimal overlapped scaling threshold.}
+  \todoanswer{Derive the optimal $N=N_{\mathrm{TP}}N_{\mathrm{FSDP}}$ threshold when axes can overlap.}
+
+  \item \textbf{Optimal non-overlapped scaling threshold.}
+  \todoanswer{Derive the optimal $N=N_{\mathrm{TP}}N_{\mathrm{FSDP}}$ threshold when axes share network resources.}
+\end{enumerate}
+
+\section{Leaderboard}
+
+\subsection{Problem (leaderboard): Fastest Training Step}
+
+\todoanswer{Report the best wall-clock time for one full forward/backward/AdamW training step for the 8B benchmark, plus the command/configuration used.}
+
+\end{document}

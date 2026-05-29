@@ -1,0 +1,40 @@
+{
+  "config": {
+    "mode": "forward",
+    "model_size": "xl",
+    "vocab_size": 10000,
+    "batch_size": 4,
+    "context_length": 128,
+    "d_model": 2560,
+    "d_ff": 10240,
+    "num_layers": 32,
+    "num_heads": 32,
+    "rope_theta": 10000.0,
+    "warmup_steps": 5,
+    "steps": 1,
+    "device": "cuda",
+    "dtype": "float32",
+    "autocast_dtype": null,
+    "optimizer": "basics-adamw",
+    "lr": 0.001,
+    "weight_decay": 0.01,
+    "seed": 0,
+    "compile": false,
+    "forward_requires_grad": false,
+    "regenerate_batch": false,
+    "nvtx": false,
+    "nvtx_attention": false,
+    "memory_snapshot": "profiles/memory/xl_ctx128_forward.pickle",
+    "memory_history_max_entries": 1000000
+  },
+  "num_parameters": 3406809600,
+  "mean_s": 0.11801692517474294,
+  "std_s": 0.0,
+  "min_s": 0.11801692517474294,
+  "max_s": 0.11801692517474294,
+  "timings_s": [
+    0.11801692517474294
+  ],
+  "last_loss": null,
+  "peak_memory_bytes": 13884909568
+}

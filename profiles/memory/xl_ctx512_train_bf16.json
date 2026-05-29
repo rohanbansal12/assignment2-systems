@@ -1,0 +1,40 @@
+{
+  "config": {
+    "mode": "train",
+    "model_size": "xl",
+    "vocab_size": 10000,
+    "batch_size": 4,
+    "context_length": 512,
+    "d_model": 2560,
+    "d_ff": 10240,
+    "num_layers": 32,
+    "num_heads": 32,
+    "rope_theta": 10000.0,
+    "warmup_steps": 5,
+    "steps": 1,
+    "device": "cuda",
+    "dtype": "float32",
+    "autocast_dtype": "bfloat16",
+    "optimizer": "basics-adamw",
+    "lr": 0.001,
+    "weight_decay": 0.01,
+    "seed": 0,
+    "compile": false,
+    "forward_requires_grad": false,
+    "regenerate_batch": false,
+    "nvtx": false,
+    "nvtx_attention": false,
+    "memory_snapshot": "profiles/memory/xl_ctx512_train_bf16.pickle",
+    "memory_history_max_entries": 1000000
+  },
+  "num_parameters": 3406809600,
+  "mean_s": 0.4779090990778059,
+  "std_s": 0.0,
+  "min_s": 0.4779090990778059,
+  "max_s": 0.4779090990778059,
+  "timings_s": [
+    0.4779090990778059
+  ],
+  "last_loss": 7.243185997009277,
+  "peak_memory_bytes": 67343461888
+}

@@ -1,0 +1,568 @@
+{
+  "small": {
+    "forward": {
+      "fp32": {
+        "returncode": 0,
+        "cmd": [
+          "uv",
+          "run",
+          "python",
+          "-m",
+          "cs336_systems.benchmarking",
+          "--batch-size",
+          "4",
+          "--context-length",
+          "512",
+          "--warmup-steps",
+          "5",
+          "--steps",
+          "10",
+          "--json",
+          "--model-size",
+          "small",
+          "--mode",
+          "forward"
+        ],
+        "mean_ms": 23.81601920351386,
+        "std_ms": 0.09830984809158409,
+        "peak_memory_gib": 0.7349386215209961
+      },
+      "bf16": {
+        "returncode": 0,
+        "cmd": [
+          "uv",
+          "run",
+          "python",
+          "-m",
+          "cs336_systems.benchmarking",
+          "--batch-size",
+          "4",
+          "--context-length",
+          "512",
+          "--warmup-steps",
+          "5",
+          "--steps",
+          "10",
+          "--json",
+          "--model-size",
+          "small",
+          "--mode",
+          "forward",
+          "--autocast-dtype",
+          "bfloat16"
+        ],
+        "mean_ms": 10.25246731005609,
+        "std_ms": 0.056022668273543914,
+        "peak_memory_gib": 0.9121847152709961
+      }
+    },
+    "backward": {
+      "fp32": {
+        "returncode": 0,
+        "cmd": [
+          "uv",
+          "run",
+          "python",
+          "-m",
+          "cs336_systems.benchmarking",
+          "--batch-size",
+          "4",
+          "--context-length",
+          "512",
+          "--warmup-steps",
+          "5",
+          "--steps",
+          "10",
+          "--json",
+          "--model-size",
+          "small",
+          "--mode",
+          "backward"
+        ],
+        "mean_ms": 75.75322869233787,
+        "std_ms": 3.543774155617872,
+        "peak_memory_gib": 4.107463359832764
+      },
+      "bf16": {
+        "returncode": 0,
+        "cmd": [
+          "uv",
+          "run",
+          "python",
+          "-m",
+          "cs336_systems.benchmarking",
+          "--batch-size",
+          "4",
+          "--context-length",
+          "512",
+          "--warmup-steps",
+          "5",
+          "--steps",
+          "10",
+          "--json",
+          "--model-size",
+          "small",
+          "--mode",
+          "backward",
+          "--autocast-dtype",
+          "bfloat16"
+        ],
+        "mean_ms": 33.47317485604435,
+        "std_ms": 1.8454739551618908,
+        "peak_memory_gib": 3.28855562210083
+      }
+    }
+  },
+  "medium": {
+    "forward": {
+      "fp32": {
+        "returncode": 0,
+        "cmd": [
+          "uv",
+          "run",
+          "python",
+          "-m",
+          "cs336_systems.benchmarking",
+          "--batch-size",
+          "4",
+          "--context-length",
+          "512",
+          "--warmup-steps",
+          "5",
+          "--steps",
+          "10",
+          "--json",
+          "--model-size",
+          "medium",
+          "--mode",
+          "forward"
+        ],
+        "mean_ms": 70.80279397778213,
+        "std_ms": 3.216493135910102,
+        "peak_memory_gib": 1.9069595336914062
+      },
+      "bf16": {
+        "returncode": 0,
+        "cmd": [
+          "uv",
+          "run",
+          "python",
+          "-m",
+          "cs336_systems.benchmarking",
+          "--batch-size",
+          "4",
+          "--context-length",
+          "512",
+          "--warmup-steps",
+          "5",
+          "--steps",
+          "10",
+          "--json",
+          "--model-size",
+          "medium",
+          "--mode",
+          "forward",
+          "--autocast-dtype",
+          "bfloat16"
+        ],
+        "mean_ms": 22.998766717500985,
+        "std_ms": 0.11385178991403426,
+        "peak_memory_gib": 2.5651626586914062
+      }
+    },
+    "backward": {
+      "fp32": {
+        "returncode": 0,
+        "cmd": [
+          "uv",
+          "run",
+          "python",
+          "-m",
+          "cs336_systems.benchmarking",
+          "--batch-size",
+          "4",
+          "--context-length",
+          "512",
+          "--warmup-steps",
+          "5",
+          "--steps",
+          "10",
+          "--json",
+          "--model-size",
+          "medium",
+          "--mode",
+          "backward"
+        ],
+        "mean_ms": 218.4179071104154,
+        "std_ms": 5.787174005254136,
+        "peak_memory_gib": 10.610554218292236
+      },
+      "bf16": {
+        "returncode": 0,
+        "cmd": [
+          "uv",
+          "run",
+          "python",
+          "-m",
+          "cs336_systems.benchmarking",
+          "--batch-size",
+          "4",
+          "--context-length",
+          "512",
+          "--warmup-steps",
+          "5",
+          "--steps",
+          "10",
+          "--json",
+          "--model-size",
+          "medium",
+          "--mode",
+          "backward",
+          "--autocast-dtype",
+          "bfloat16"
+        ],
+        "mean_ms": 73.92551538068801,
+        "std_ms": 2.636230540774956,
+        "peak_memory_gib": 8.469007015228271
+      }
+    }
+  },
+  "large": {
+    "forward": {
+      "fp32": {
+        "returncode": 0,
+        "cmd": [
+          "uv",
+          "run",
+          "python",
+          "-m",
+          "cs336_systems.benchmarking",
+          "--batch-size",
+          "4",
+          "--context-length",
+          "512",
+          "--warmup-steps",
+          "5",
+          "--steps",
+          "10",
+          "--json",
+          "--model-size",
+          "large",
+          "--mode",
+          "forward"
+        ],
+        "mean_ms": 171.2717765243724,
+        "std_ms": 4.76209220524097,
+        "peak_memory_gib": 4.119706153869629
+      },
+      "bf16": {
+        "returncode": 0,
+        "cmd": [
+          "uv",
+          "run",
+          "python",
+          "-m",
+          "cs336_systems.benchmarking",
+          "--batch-size",
+          "4",
+          "--context-length",
+          "512",
+          "--warmup-steps",
+          "5",
+          "--steps",
+          "10",
+          "--json",
+          "--model-size",
+          "large",
+          "--mode",
+          "forward",
+          "--autocast-dtype",
+          "bfloat16"
+        ],
+        "mean_ms": 44.86045215744525,
+        "std_ms": 0.36020316796825125,
+        "peak_memory_gib": 5.768265724182129
+      }
+    },
+    "backward": {
+      "fp32": {
+        "returncode": 0,
+        "cmd": [
+          "uv",
+          "run",
+          "python",
+          "-m",
+          "cs336_systems.benchmarking",
+          "--batch-size",
+          "4",
+          "--context-length",
+          "512",
+          "--warmup-steps",
+          "5",
+          "--steps",
+          "10",
+          "--json",
+          "--model-size",
+          "large",
+          "--mode",
+          "backward"
+        ],
+        "mean_ms": 515.3497943421826,
+        "std_ms": 1.0256608387233115,
+        "peak_memory_gib": 20.311673641204834
+      },
+      "bf16": {
+        "returncode": 0,
+        "cmd": [
+          "uv",
+          "run",
+          "python",
+          "-m",
+          "cs336_systems.benchmarking",
+          "--batch-size",
+          "4",
+          "--context-length",
+          "512",
+          "--warmup-steps",
+          "5",
+          "--steps",
+          "10",
+          "--json",
+          "--model-size",
+          "large",
+          "--mode",
+          "backward",
+          "--autocast-dtype",
+          "bfloat16"
+        ],
+        "mean_ms": 146.41294782049954,
+        "std_ms": 4.9055716747708455,
+        "peak_memory_gib": 16.646446704864502
+      }
+    }
+  },
+  "xl": {
+    "forward": {
+      "fp32": {
+        "returncode": 0,
+        "cmd": [
+          "uv",
+          "run",
+          "python",
+          "-m",
+          "cs336_systems.benchmarking",
+          "--batch-size",
+          "4",
+          "--context-length",
+          "512",
+          "--warmup-steps",
+          "5",
+          "--steps",
+          "10",
+          "--json",
+          "--model-size",
+          "xl",
+          "--mode",
+          "forward"
+        ],
+        "mean_ms": 490.5744386371225,
+        "std_ms": 6.223939245216719,
+        "peak_memory_gib": 13.46613883972168
+      },
+      "bf16": {
+        "returncode": 0,
+        "cmd": [
+          "uv",
+          "run",
+          "python",
+          "-m",
+          "cs336_systems.benchmarking",
+          "--batch-size",
+          "4",
+          "--context-length",
+          "512",
+          "--warmup-steps",
+          "5",
+          "--steps",
+          "10",
+          "--json",
+          "--model-size",
+          "xl",
+          "--mode",
+          "forward",
+          "--autocast-dtype",
+          "bfloat16"
+        ],
+        "mean_ms": 97.2484431695193,
+        "std_ms": 5.580938903022556,
+        "peak_memory_gib": 19.42561149597168
+      }
+    },
+    "backward": {
+      "fp32": {
+        "returncode": 0,
+        "cmd": [
+          "uv",
+          "run",
+          "python",
+          "-m",
+          "cs336_systems.benchmarking",
+          "--batch-size",
+          "4",
+          "--context-length",
+          "512",
+          "--warmup-steps",
+          "5",
+          "--steps",
+          "10",
+          "--json",
+          "--model-size",
+          "xl",
+          "--mode",
+          "backward"
+        ],
+        "mean_ms": 1489.8505554068834,
+        "std_ms": 5.254728594464512,
+        "peak_memory_gib": 40.20162105560303
+      },
+      "bf16": {
+        "returncode": 0,
+        "cmd": [
+          "uv",
+          "run",
+          "python",
+          "-m",
+          "cs336_systems.benchmarking",
+          "--batch-size",
+          "4",
+          "--context-length",
+          "512",
+          "--warmup-steps",
+          "5",
+          "--steps",
+          "10",
+          "--json",
+          "--model-size",
+          "xl",
+          "--mode",
+          "backward",
+          "--autocast-dtype",
+          "bfloat16"
+        ],
+        "mean_ms": 312.8871125401929,
+        "std_ms": 6.775496982057213,
+        "peak_memory_gib": 37.33577632904053
+      }
+    }
+  },
+  "10b": {
+    "forward": {
+      "fp32": {
+        "returncode": 0,
+        "cmd": [
+          "uv",
+          "run",
+          "python",
+          "-m",
+          "cs336_systems.benchmarking",
+          "--batch-size",
+          "4",
+          "--context-length",
+          "512",
+          "--warmup-steps",
+          "5",
+          "--steps",
+          "10",
+          "--json",
+          "--model-size",
+          "10b",
+          "--mode",
+          "forward"
+        ],
+        "mean_ms": 1865.8246749080718,
+        "std_ms": 4.139834261563998,
+        "peak_memory_gib": 48.80721855163574
+      },
+      "bf16": {
+        "returncode": 0,
+        "cmd": [
+          "uv",
+          "run",
+          "python",
+          "-m",
+          "cs336_systems.benchmarking",
+          "--batch-size",
+          "4",
+          "--context-length",
+          "512",
+          "--warmup-steps",
+          "5",
+          "--steps",
+          "10",
+          "--json",
+          "--model-size",
+          "10b",
+          "--mode",
+          "forward",
+          "--autocast-dtype",
+          "bfloat16"
+        ],
+        "mean_ms": 299.748068023473,
+        "std_ms": 13.292172770520144,
+        "peak_memory_gib": 72.02352714538574
+      }
+    },
+    "backward": {
+      "fp32": {
+        "returncode": 1,
+        "cmd": [
+          "uv",
+          "run",
+          "python",
+          "-m",
+          "cs336_systems.benchmarking",
+          "--batch-size",
+          "4",
+          "--context-length",
+          "512",
+          "--warmup-steps",
+          "5",
+          "--steps",
+          "10",
+          "--json",
+          "--model-size",
+          "10b",
+          "--mode",
+          "backward"
+        ],
+        "stderr_tail": "call(*args, **kwargs)\n  File \"/root/cs336/assignment2-systems/cs336-basics/cs336_basics/model.py\", line 253, in forward\n    x = layer(x)\n  File \"/root/cs336/assignment2-systems/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/root/cs336/assignment2-systems/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n  File \"/root/cs336/assignment2-systems/cs336-basics/cs336_basics/model.py\", line 386, in forward\n    x_ffn = self.ffn(self.ln2(attn_sublayer_output))\n  File \"/root/cs336/assignment2-systems/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/root/cs336/assignment2-systems/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n  File \"/root/cs336/assignment2-systems/cs336-basics/cs336_basics/model.py\", line 399, in forward\n    return self.w2(silu(self.w1(x)) * self.w3(x))\n                   ~~~~^^^^^^^^^^^^\n  File \"/root/cs336/assignment2-systems/cs336-basics/cs336_basics/model.py\", line 532, in silu\n    return x * torch.sigmoid(x)\n           ~~^~~~~~~~~~~~~~~~~~\ntorch.OutOfMemoryError: CUDA out of memory. Tried to allocate 96.00 MiB. GPU 0 has a total capacity of 93.09 GiB of which 16.56 MiB is free. Process 3935735 has 93.06 GiB memory in use. Of the allocated memory 91.89 GiB is allocated by PyTorch, and 517.57 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)\n"
+      },
+      "bf16": {
+        "returncode": 1,
+        "cmd": [
+          "uv",
+          "run",
+          "python",
+          "-m",
+          "cs336_systems.benchmarking",
+          "--batch-size",
+          "4",
+          "--context-length",
+          "512",
+          "--warmup-steps",
+          "5",
+          "--steps",
+          "10",
+          "--json",
+          "--model-size",
+          "10b",
+          "--mode",
+          "backward",
+          "--autocast-dtype",
+          "bfloat16"
+        ],
+        "stderr_tail": "/root/cs336/assignment2-systems/cs336-basics/cs336_basics/model.py\", line 399, in forward\n    return self.w2(silu(self.w1(x)) * self.w3(x))\n                                      ~~~~~~~^^^\n  File \"/root/cs336/assignment2-systems/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py\", line 1779, in _wrapped_call_impl\n    return self._call_impl(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/root/cs336/assignment2-systems/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py\", line 1790, in _call_impl\n    return forward_call(*args, **kwargs)\n  File \"/root/cs336/assignment2-systems/cs336-basics/cs336_basics/model.py\", line 39, in forward\n    return einsum(x, self.weight, \"... d_in, d_out d_in -> ... d_out\")\n  File \"/root/cs336/assignment2-systems/.venv/lib/python3.13/site-packages/einops/einops.py\", line 939, in einsum\n    return get_backend(tensors[0]).einsum(pattern, *tensors)\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^\n  File \"/root/cs336/assignment2-systems/.venv/lib/python3.13/site-packages/einops/_backends.py\", line 291, in einsum\n    return self.torch.einsum(pattern, *x)\n           ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/root/cs336/assignment2-systems/.venv/lib/python3.13/site-packages/torch/functional.py\", line 373, in einsum\n    return _VF.einsum(equation, operands)  # type: ignore[attr-defined]\n           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^\ntorch.OutOfMemoryError: CUDA out of memory. Tried to allocate 108.00 MiB. GPU 0 has a total capacity of 93.09 GiB of which 32.56 MiB is free. Process 3939556 has 93.04 GiB memory in use. Of the allocated memory 91.70 GiB is allocated by PyTorch, and 704.01 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)\n"
+      }
+    }
+  }
+}
