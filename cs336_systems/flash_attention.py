@@ -187,7 +187,7 @@ if triton is not None:
             order=(0,),
         )
 
-        q_i = tl.load(Q_block_ptr, boundary_check=(0, 1), padding_option="zero").to(tl.float32)
+        q_i = tl.load(Q_block_ptr, boundary_check=(0, 1), padding_option="zero")
 
         O_i = tl.zeros((Q_TILE_SIZE, D), dtype=tl.float32)
         l_i = tl.zeros((Q_TILE_SIZE,), dtype=tl.float32)

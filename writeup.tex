@@ -9,6 +9,7 @@
 \usepackage{enumitem}
 \usepackage{float}
 \usepackage{graphicx}
+\usepackage{longtable}
 \usepackage{microtype}
 \usepackage{hyperref}
 \usepackage{xcolor}
@@ -311,23 +312,48 @@ The first loop accumulates entirely in FP32, so it has only small rounding error
 
 \begin{enumerate}
   \item \textbf{Asymptotically optimal strategy.}
-  \todoanswer{Describe the checkpoint nesting strategy, asymptotic peak activation memory, compute cost, and include a short code sketch.}
+  I would use recursive checkpointing with roughly square-root fanout at each level. Split the $N$ blocks into about $\sqrt{N}$ contiguous chunks of size about $\sqrt{N}$, wrap each chunk in \codepath{checkpoint}, and inside each chunk repeat the same construction until the base case of a single Transformer block. This stores only the checkpoint-boundary activations at each recursive level during the forward pass, and during the backward pass it recomputes the currently-needed chunk and materializes the full residuals only for one small subproblem at a time. If $M(N)$ counts checkpoint boundary activations, the peak satisfies
+  \[
+    M(N) = O(\sqrt{N}) + M(\sqrt{N}) = O(\sqrt{N}),
+  \]
+  while the dominant saved residuals for an individual block are reduced to $O(1)$ simultaneously-live blocks. Since each recursive level recomputes all blocks once, the total compute is
+  \[
+    C(N) = O(N \log\log N)
+  \]
+  block evaluations, ignoring constant factors.
+
+\begin{verbatim}
+def recursive_checkpoint(blocks, x):
+    n = len(blocks)
+    if n == 1:
+        return blocks[0](x)
+
+    chunk_size = ceil(sqrt(n))
+    for start in range(0, n, chunk_size):
+        chunk = blocks[start:start + chunk_size]
+
+        def run_chunk(y, chunk=chunk):
+            return recursive_checkpoint(chunk, y)
+
+        x = checkpoint(run_chunk, x, use_reentrant=False)
+    return x
+\end{verbatim}
 
   \item \textbf{Best one-level strategy for xl.}
   \begin{table}[H]
     \centering
-    \caption{One-level checkpointing block-size sweep for xl, batch size 4, context length 2048.}
+    \caption{One-level checkpointing block-size sweep for xl, batch size 4, context length 2048. Measurements use FP32 on one H200 with one warmup step and one measured training step.}
     \begin{tabular}{lrr}
       \toprule
       Checkpoint block size & Peak memory GiB & Relative step time \\
       \midrule
-      smaller than chosen & -- & -- \\
-      chosen & -- & -- \\
-      larger than chosen & -- & -- \\
+      4 & 81.530 & 1.000 \\
+      6 & 93.455 & 1.003 \\
+      8 & 105.377 & 1.006 \\
       \bottomrule
     \end{tabular}
   \end{table}
-  \todoanswer{Add 3--5 sentences explaining the selected block size and measured validation.}
+  A first square-root heuristic suggests chunk sizes around $\sqrt{32}\approx 6$, so I compared block sizes 4, 6, and 8 as a local sweep around that guess. Among these three one-level checkpointing schedules, block size 4 had the lowest measured peak memory, while the step times were nearly identical. This suggests that, in this model, the residuals saved inside a chunk are large enough that using somewhat smaller chunks than the naive $\sqrt{N}$ guess is beneficial; the extra checkpoint-boundary activations are cheaper than materializing more Transformer blocks' saved tensors at once.
 \end{enumerate}
 
 \section{GPU Kernels}
@@ -336,59 +362,98 @@ The first loop accumulates entirely in FP32, so it has only small rounding error
 
 \begin{table}[H]
   \centering
-  \caption{PyTorch attention timings and memory. Batch size 8, single head.}
+  \caption{PyTorch attention timings and memory on one H200. Batch size 8, single head, FP32, 5 warmup steps and 100 measured steps.}
+  \resizebox{\textwidth}{!}{%
   \begin{tabular}{rrrrr}
     \toprule
     $d$ & Sequence length & Forward ms & Backward ms & Memory before backward GiB \\
     \midrule
-    16 & 256 & -- & -- & -- \\
-    16 & 1024 & -- & -- & -- \\
-    16 & 4096 & -- & -- & -- \\
-    16 & 8192 & -- & -- & -- \\
-    16 & 16384 & -- & -- & -- \\
-    32 & 256 & -- & -- & -- \\
-    64 & 256 & -- & -- & -- \\
-    128 & 256 & -- & -- & -- \\
+    16 & 256 & 0.110 & 0.407 & 0.036 \\
+    16 & 1024 & 0.199 & 0.567 & 0.127 \\
+    16 & 4096 & 2.124 & 5.004 & 1.071 \\
+    16 & 8192 & 8.591 & 19.730 & 4.079 \\
+    16 & 16384 & 33.106 & 76.557 & 16.095 \\
+    32 & 256 & 0.103 & 0.399 & 0.067 \\
+    32 & 1024 & 0.213 & 0.576 & 0.129 \\
+    32 & 4096 & 2.207 & 5.079 & 1.078 \\
+    32 & 8192 & 8.929 & 20.024 & 4.094 \\
+    32 & 16384 & 34.592 & 78.014 & 16.126 \\
+    64 & 256 & 0.108 & 0.435 & 0.068 \\
+    64 & 1024 & 0.236 & 0.580 & 0.133 \\
+    64 & 4096 & 2.504 & 5.635 & 1.094 \\
+    64 & 8192 & 10.182 & 22.405 & 4.126 \\
+    64 & 16384 & 40.121 & 87.923 & 16.189 \\
+    128 & 256 & 0.110 & 0.424 & 0.070 \\
+    128 & 1024 & 0.277 & 0.662 & 0.141 \\
+    128 & 4096 & 3.118 & 6.986 & 1.125 \\
+    128 & 8192 & 12.547 & 26.905 & 4.188 \\
+    128 & 16384 & 49.327 & 105.670 & 16.314 \\
     \bottomrule
   \end{tabular}
+  }
 \end{table}
-\todoanswer{Complete the full Cartesian-product table, mark OOM cases, include one memory accounting derivation, and write the 1--2 paragraph response.}
+The benchmark script is \codepath{scripts/benchmark\_pytorch\_attention.py}. None of these configurations OOMed on the H200, but the memory growth is clearly quadratic in sequence length and only weakly dependent on $d$: increasing from sequence length 8192 to 16384 increases the pre-backward memory by about $4\times$. For example, with batch size 8 and sequence length 16384, one FP32 attention matrix of shape $8\times 16384\times 16384$ is
+\[
+  8 \cdot 16384^2 \cdot 4 / 1024^3 = 8 \text{ GiB}.
+\]
+The measured pre-backward memory is about 16 GiB because vanilla attention materializes large sequence-by-sequence tensors such as the attention scores/probabilities for backward; the $Q,K,V$ and output activations are much smaller by comparison. The saved-for-backward attention memory therefore scales as $O(BT^2)$, which is the cost FlashAttention removes by recomputing attention probabilities tile-by-tile instead of storing the full attention matrix in HBM.
 
 \subsection{Problem (torch\_compile): Torch Compile}
 
 \begin{enumerate}
   \item \textbf{Compiled attention.}
-  \begin{table}[H]
-    \centering
-    \caption{Compiled vs. uncompiled PyTorch attention.}
-    \resizebox{\textwidth}{!}{%
-    \begin{tabular}{rrrrr}
-      \toprule
-      $d$ & Sequence length & Uncompiled forward/backward ms & Compiled forward/backward ms & Speedup \\
-      \midrule
-      -- & -- & -- & -- & -- \\
-      \bottomrule
-    \end{tabular}
-    }
-  \end{table}
+	  \begin{table}[H]
+	    \centering
+	    \caption{Compiled vs. uncompiled PyTorch attention. Each timing cell is forward/backward ms. Speedup is computed on forward+backward time.}
+	    \resizebox{\textwidth}{!}{%
+	    \begin{tabular}{rrrrr}
+	      \toprule
+	      $d$ & Sequence length & Uncompiled forward/backward ms & Compiled forward/backward ms & Speedup \\
+	      \midrule
+	      16 & 256 & 0.110/0.407 & 0.075/0.307 & 1.35 \\
+	      16 & 1024 & 0.199/0.567 & 0.105/0.363 & 1.64 \\
+	      16 & 4096 & 2.124/5.004 & 0.814/2.159 & 2.40 \\
+	      16 & 8192 & 8.591/19.730 & 2.953/8.160 & 2.55 \\
+	      16 & 16384 & 33.106/76.557 & 12.064/32.044 & 2.49 \\
+	      32 & 256 & 0.103/0.399 & 0.078/0.340 & 1.20 \\
+	      32 & 1024 & 0.213/0.576 & 0.118/0.383 & 1.57 \\
+	      32 & 4096 & 2.207/5.079 & 0.892/2.238 & 2.33 \\
+	      32 & 8192 & 8.929/20.024 & 3.306/8.707 & 2.41 \\
+	      32 & 16384 & 34.592/78.014 & 13.494/33.739 & 2.38 \\
+	      64 & 256 & 0.108/0.435 & 0.073/0.316 & 1.40 \\
+	      64 & 1024 & 0.236/0.580 & 0.142/0.401 & 1.50 \\
+	      64 & 4096 & 2.504/5.635 & 1.189/2.786 & 2.05 \\
+	      64 & 8192 & 10.182/22.405 & 4.542/11.098 & 2.08 \\
+	      64 & 16384 & 40.121/87.923 & 19.012/43.649 & 2.04 \\
+	      128 & 256 & 0.110/0.424 & 0.071/0.320 & 1.37 \\
+	      128 & 1024 & 0.277/0.662 & 0.183/0.484 & 1.41 \\
+	      128 & 4096 & 3.118/6.986 & 1.806/4.074 & 1.72 \\
+	      128 & 8192 & 12.547/26.905 & 6.883/15.573 & 1.76 \\
+	      128 & 16384 & 49.327/105.670 & 28.139/61.171 & 1.74 \\
+	      \bottomrule
+	    \end{tabular}
+	    }
+	  \end{table}
+	  The compiled attention function is consistently faster after warmup, with the largest speedups on long sequences and smaller head dimensions where kernel fusion removes a substantial fraction of the eager overhead. I reset Dynamo before compiling each shape in the benchmark script to avoid recompile-limit fallback across the Cartesian-product sweep; compilation overhead itself is excluded by the warmup steps.
 
   \item \textbf{Compiled Transformer.}
   \begin{table}[H]
     \centering
-    \caption{Compiled vs. vanilla Transformer benchmark.}
+    \caption{Compiled vs. vanilla Transformer benchmark on one H200. Context length 512, batch size 4, FP32, 5 warmup steps and 10 measured steps.}
     \resizebox{\textwidth}{!}{%
-    \begin{tabular}{lrrrr}
+    \begin{tabular}{lrrrrrr}
       \toprule
-      Model & Vanilla forward ms & Compiled forward ms & Vanilla train step ms & Compiled train step ms \\
+      Model & Vanilla forward ms & Compiled forward ms & Forward speedup & Vanilla train ms & Compiled train ms & Train speedup \\
       \midrule
-      small & -- & -- & -- & -- \\
-      medium & -- & -- & -- & -- \\
-      large & -- & -- & -- & -- \\
-      xl & -- & -- & -- & -- \\
+      small & 19.069 & 14.634 & 1.30 & 65.042 & 52.706 & 1.23 \\
+      medium & 52.818 & 41.864 & 1.26 & 179.980 & 147.646 & 1.22 \\
+      large & 119.204 & 99.822 & 1.19 & 409.492 & 351.741 & 1.16 \\
+      xl & 328.316 & 302.604 & 1.08 & 1164.430 & 1083.091 & 1.08 \\
       \bottomrule
     \end{tabular}
     }
   \end{table}
+  I reran these timings on the H200 rather than reusing the earlier H100 measurements. Compiling the full Transformer improves both forward-only and full training-step runtimes, but the speedup shrinks as the model size grows: small gets about a 1.3x forward speedup and 1.23x train-step speedup, while xl is only about 1.08x faster. The full-model gains are smaller than the isolated attention gains because much of the step is already dominated by large matmuls and optimizer work, where graph-level fusion has less room to help.
 \end{enumerate}
 
 \subsection{Problem (flash\_forward): FlashAttention-2 Forward Pass}
@@ -412,22 +477,121 @@ The command \testcmd{uv run pytest -q tests/test\_attention.py -k 'test\_flash\_
 
 \subsection{Problem (flash\_benchmarking): FlashAttention-2 Benchmarking}
 
-\begin{table}[H]
-  \centering
-  \caption{FlashAttention-2 vs. PyTorch attention on one B200, batch size 1, causal masking.}
-  \resizebox{\textwidth}{!}{%
-  \begin{tabular}{rrrrrrr}
-    \toprule
-    Seq. len. & $d$ & Dtype & Impl. & Forward ms & Backward ms & Fwd+bwd ms \\
-    \midrule
-    128 & 16 & bf16 & Triton & -- & -- & -- \\
-    128 & 16 & fp32 & Triton & -- & -- & -- \\
-    128 & 16 & bf16 & PyTorch & -- & -- & -- \\
-    \bottomrule
-  \end{tabular}
-  }
-\end{table}
-\todoanswer{Complete the sweep over powers of two through sequence length 65536, $d \in \{16,\ldots,128\}$, and BF16/FP32.}
+The benchmark script is \codepath{scripts/benchmark\_flash\_attention.py}. I used batch size 1, causal masking, $Q\_TILE\_SIZE=K\_TILE\_SIZE=16$, and \codepath{triton.testing.do\_bench} with 25 ms of warmup and 100 ms of measurement per timing. The command was \testcmd{uv run python scripts/benchmark\_flash\_attention.py --output results/flash\_benchmark\_results.csv}. The run below was on one H200, and all configurations completed without OOM.
+
+{\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{longtable}{rrrrr}
+  \caption{BF16 FlashAttention-2 vs. PyTorch attention. Timing cells are forward/backward/forward+backward ms.}\\
+  \toprule
+  Seq. len. & $d$ & PyTorch ms & Triton ms & E2E speedup \\
+  \midrule
+  \endfirsthead
+  \toprule
+  Seq. len. & $d$ & PyTorch ms & Triton ms & E2E speedup \\
+  \midrule
+  \endhead
+  128 & 16 & 0.072/0.287/0.557 & 0.008/0.115/0.199 & 2.80 \\
+  128 & 32 & 0.070/0.282/0.580 & 0.009/0.117/0.202 & 2.87 \\
+  128 & 64 & 0.070/0.289/0.610 & 0.009/0.126/0.205 & 2.98 \\
+  128 & 128 & 0.078/0.304/0.604 & 0.011/0.119/0.200 & 3.02 \\
+  256 & 16 & 0.077/0.300/0.571 & 0.010/0.114/0.191 & 2.99 \\
+  256 & 32 & 0.072/0.294/0.589 & 0.012/0.111/0.196 & 3.01 \\
+  256 & 64 & 0.075/0.296/0.567 & 0.013/0.117/0.207 & 2.74 \\
+  256 & 128 & 0.070/0.299/0.584 & 0.016/0.117/0.197 & 2.96 \\
+  512 & 16 & 0.072/0.287/0.581 & 0.016/0.119/0.211 & 2.75 \\
+  512 & 32 & 0.070/0.284/0.555 & 0.019/0.112/0.207 & 2.68 \\
+  512 & 64 & 0.068/0.299/0.594 & 0.021/0.115/0.198 & 3.00 \\
+  512 & 128 & 0.071/0.296/0.597 & 0.026/0.116/0.203 & 2.94 \\
+  1024 & 16 & 0.072/0.299/0.560 & 0.026/0.116/0.203 & 2.76 \\
+  1024 & 32 & 0.071/0.296/0.560 & 0.034/0.115/0.209 & 2.68 \\
+  1024 & 64 & 0.072/0.287/0.577 & 0.038/0.115/0.199 & 2.90 \\
+  1024 & 128 & 0.073/0.290/0.663 & 0.046/0.117/0.204 & 3.25 \\
+  2048 & 16 & 0.089/0.328/0.557 & 0.047/0.122/0.209 & 2.67 \\
+  2048 & 32 & 0.089/0.297/0.582 & 0.065/0.119/0.200 & 2.91 \\
+  2048 & 64 & 0.089/0.308/0.637 & 0.072/0.122/0.207 & 3.08 \\
+  2048 & 128 & 0.090/0.303/0.584 & 0.086/0.142/0.224 & 2.61 \\
+  4096 & 16 & 0.252/0.499/0.746 & 0.089/0.189/0.276 & 2.70 \\
+  4096 & 32 & 0.251/0.494/0.736 & 0.131/0.175/0.303 & 2.43 \\
+  4096 & 64 & 0.249/0.495/0.739 & 0.152/0.239/0.390 & 1.89 \\
+  4096 & 128 & 0.252/0.498/0.743 & 0.199/0.372/0.569 & 1.31 \\
+  8192 & 16 & 0.919/1.753/2.665 & 0.287/0.587/0.873 & 3.05 \\
+  8192 & 32 & 0.918/1.747/2.656 & 0.355/0.551/0.902 & 2.94 \\
+  8192 & 64 & 0.917/1.747/2.656 & 0.411/0.787/1.199 & 2.22 \\
+  8192 & 128 & 0.924/1.754/2.669 & 0.567/1.329/1.888 & 1.41 \\
+  16384 & 16 & 3.354/6.590/9.942 & 1.066/2.224/3.264 & 3.05 \\
+  16384 & 32 & 3.361/6.591/9.942 & 1.285/2.169/3.443 & 2.89 \\
+  16384 & 64 & 3.364/6.593/9.947 & 1.498/3.095/4.589 & 2.17 \\
+  16384 & 128 & 3.383/6.617/9.988 & 2.372/5.324/7.680 & 1.30 \\
+  32768 & 16 & 12.984/25.883/38.859 & 4.055/8.434/12.495 & 3.11 \\
+  32768 & 32 & 13.004/25.888/38.896 & 4.995/8.471/13.453 & 2.89 \\
+  32768 & 64 & 13.032/25.915/38.943 & 5.872/12.090/17.966 & 2.17 \\
+  32768 & 128 & 13.079/25.977/39.032 & 8.502/20.653/29.085 & 1.34 \\
+  65536 & 16 & 51.932/103.593/155.344 & 15.876/33.045/48.938 & 3.17 \\
+  65536 & 32 & 51.881/103.588/155.459 & 19.672/33.513/53.179 & 2.92 \\
+  65536 & 64 & 52.073/103.830/155.955 & 23.156/47.768/70.931 & 2.20 \\
+  65536 & 128 & 52.348/104.085/156.790 & 32.599/81.685/114.249 & 1.37 \\
+  \bottomrule
+\end{longtable}
+}
+
+{\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{longtable}{rrrrr}
+  \caption{FP32 FlashAttention-2 vs. PyTorch attention. Timing cells are forward/backward/forward+backward ms.}\\
+  \toprule
+  Seq. len. & $d$ & PyTorch ms & Triton ms & E2E speedup \\
+  \midrule
+  \endfirsthead
+  \toprule
+  Seq. len. & $d$ & PyTorch ms & Triton ms & E2E speedup \\
+  \midrule
+  \endhead
+  128 & 16 & 0.073/0.306/0.604 & 0.008/0.113/0.193 & 3.13 \\
+  128 & 32 & 0.080/0.309/0.585 & 0.009/0.118/0.197 & 2.97 \\
+  128 & 64 & 0.076/0.308/0.593 & 0.010/0.114/0.196 & 3.03 \\
+  128 & 128 & 0.077/0.302/0.599 & 0.012/0.114/0.197 & 3.04 \\
+  256 & 16 & 0.079/0.322/0.602 & 0.010/0.113/0.190 & 3.17 \\
+  256 & 32 & 0.084/0.317/0.621 & 0.013/0.111/0.191 & 3.25 \\
+  256 & 64 & 0.084/0.318/0.619 & 0.015/0.117/0.194 & 3.19 \\
+  256 & 128 & 0.086/0.321/0.602 & 0.019/0.117/0.197 & 3.06 \\
+  512 & 16 & 0.082/0.317/0.602 & 0.016/0.118/0.203 & 2.97 \\
+  512 & 32 & 0.079/0.311/0.611 & 0.021/0.118/0.202 & 3.02 \\
+  512 & 64 & 0.079/0.325/0.621 & 0.025/0.120/0.198 & 3.14 \\
+  512 & 128 & 0.073/0.308/0.603 & 0.034/0.119/0.194 & 3.11 \\
+  1024 & 16 & 0.080/0.307/0.604 & 0.029/0.122/0.211 & 2.86 \\
+  1024 & 32 & 0.076/0.313/0.617 & 0.037/0.129/0.210 & 2.94 \\
+  1024 & 64 & 0.076/0.320/0.620 & 0.043/0.128/0.208 & 2.98 \\
+  1024 & 128 & 0.081/0.318/0.617 & 0.062/0.169/0.208 & 2.97 \\
+  2048 & 16 & 0.115/0.313/0.610 & 0.054/0.173/0.202 & 3.02 \\
+  2048 & 32 & 0.117/0.298/0.590 & 0.070/0.179/0.221 & 2.67 \\
+  2048 & 64 & 0.132/0.311/0.600 & 0.083/0.236/0.287 & 2.09 \\
+  2048 & 128 & 0.149/0.313/0.609 & 0.119/0.326/0.399 & 1.53 \\
+  4096 & 16 & 0.382/0.793/1.168 & 0.110/0.350/0.454 & 2.57 \\
+  4096 & 32 & 0.395/0.814/1.201 & 0.152/0.373/0.518 & 2.32 \\
+  4096 & 64 & 0.438/0.880/1.311 & 0.194/0.542/0.734 & 1.79 \\
+  4096 & 128 & 0.522/1.037/1.558 & 0.293/0.877/1.163 & 1.34 \\
+  8192 & 16 & 1.385/2.794/4.169 & 0.366/1.025/1.392 & 2.99 \\
+  8192 & 32 & 1.423/2.846/4.260 & 0.439/1.095/1.531 & 2.78 \\
+  8192 & 64 & 1.579/3.125/4.702 & 0.586/1.777/2.362 & 1.99 \\
+  8192 & 128 & 1.929/3.753/5.675 & 0.896/3.200/4.076 & 1.39 \\
+  16384 & 16 & 5.156/10.590/15.746 & 1.349/4.162/5.499 & 2.86 \\
+  16384 & 32 & 5.320/10.800/16.118 & 1.652/4.230/5.894 & 2.73 \\
+  16384 & 64 & 5.980/11.993/17.959 & 2.436/7.399/9.827 & 1.83 \\
+  16384 & 128 & 7.358/14.567/21.921 & 3.588/12.543/16.094 & 1.36 \\
+  32768 & 16 & 20.119/41.755/61.878 & 5.152/14.399/19.522 & 3.17 \\
+  32768 & 32 & 20.753/42.579/63.357 & 6.471/16.446/22.879 & 2.77 \\
+  32768 & 64 & 23.492/47.324/70.821 & 8.899/27.310/36.190 & 1.96 \\
+  32768 & 128 & 29.294/57.928/87.264 & 14.300/49.573/63.947 & 1.36 \\
+  65536 & 16 & 84.559/171.273/255.835 & 20.140/56.232/76.335 & 3.35 \\
+  65536 & 32 & 87.328/178.228/265.548 & 25.486/64.593/90.051 & 2.95 \\
+  65536 & 64 & 93.876/190.164/283.524 & 34.627/108.126/142.854 & 1.98 \\
+  65536 & 128 & 113.121/227.312/339.959 & 54.549/198.086/252.637 & 1.35 \\
+  \bottomrule
+\end{longtable}
+}
+
+FlashAttention is faster for every configuration in this sweep, with the largest end-to-end speedups generally appearing at small $d$ and long sequence lengths: for example, FP32 at $T=65536,d=16$ improves from 255.835 ms to 76.335 ms, a 3.35x speedup. The speedup is smaller at $d=128$ because the per-tile matrix multiplications become more compute-heavy and the benefit from avoiding the full $T\times T$ attention materialization is less dominant in wall-clock time. BF16 is faster than FP32 for both implementations at long sequence lengths, but the Triton version still keeps the memory-friendly FlashAttention structure and remains consistently ahead.
 
 \section{Distributed Data Parallel Training}
 
