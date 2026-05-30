@@ -395,18 +395,20 @@ The first loop accumulates entirely in FP32, so it has only small rounding error
 
 \begin{enumerate}
   \item \textbf{Pure PyTorch autograd function.}
-  \todoanswer{State implementation location and test result for \testcmd{uv run pytest -k test\_flash\_forward\_pass\_pytorch}.}
+  The pure PyTorch implementation is \codepath{FlashAttentionPytorchFunction} in \codepath{cs336\_systems/flash\_attention.py}. It follows the tiled online-softmax recurrence with $B_q=B_k=16$, accumulates the running numerator $O_i$, denominator $l_i$, and row maximum $m_i$ in FP32, then saves $L,Q,K,V,O$ for backward. The command \testcmd{uv run pytest -q tests/test\_attention.py -k 'test\_flash\_forward\_pass\_pytorch'} passed with 1 test passed.
 
   \item \textbf{Triton forward kernel.}
-  \todoanswer{State implementation location, tile sizes, and test result for \testcmd{uv run pytest -k test\_flash\_forward\_pass\_triton}.}
+  The Triton forward path is implemented by \codepath{flash\_fwd\_kernel} and launched from \codepath{FlashAttentionTritonFunction.forward} in \codepath{cs336\_systems/flash\_attention.py}. The launch grid is $(\lceil N_q/16\rceil,\mathrm{batch\_size})$, so each program handles one batch element and one query tile, loads the query tile once, loops over key/value tiles, and stores one output tile plus its log-sum-exp tile. The tile sizes are $Q\_TILE\_SIZE=16$ and $K\_TILE\_SIZE=16$. The command \testcmd{uv run pytest -q tests/test\_attention.py -k 'test\_flash\_forward\_pass\_triton'} passed with 2 tests passed.
 
   \item \textbf{Causal masking flag.}
-  \todoanswer{Describe causal masking implementation and any tests used to verify noncausal and causal behavior.}
+  Causal masking is implemented in the Triton score tile before the online softmax update. The kernel constructs absolute query and key offsets, keeps entries where $q \ge k$, and uses \codepath{tl.where} to replace masked scores with $-10^6$; it also masks key columns past $N_k$ for partial final tiles. The \codepath{is\_causal} flag is saved on the autograd context and passed as a \codepath{tl.constexpr} to both forward and backward kernels. The parametrized Triton forward tests passed for both \codepath{is\_causal=False} and \codepath{is\_causal=True}.
 \end{enumerate}
 
 \subsection{Problem (flash\_backward): FlashAttention-2 Backward Pass}
 
-\todoanswer{State implementation location and test result for \testcmd{uv run pytest -k test\_flash\_backward}.}
+The backward implementations are in \codepath{cs336\_systems/flash\_attention.py}. The PyTorch reference backward recomputes the score and probability matrices from saved $Q,K,V,O,L$, computes $D=\mathrm{rowsum}(O \circ dO)$, and then forms $dV=P^\top dO$, $dS=P\circ(dP-D)$, $dQ=dS K/\sqrt d$, and $dK=dS^\top Q/\sqrt d$. I also implemented the optional Triton backward path following Algorithm 2: \codepath{flash\_bwd\_delta\_kernel} computes $D$, \codepath{flash\_bwd\_dkdv\_kernel} assigns one program per key tile and loops over query tiles to accumulate $dK,dV$, and \codepath{flash\_bwd\_dq\_kernel} assigns one program per query tile and loops over key tiles to accumulate $dQ$. This recomputes $P$ separately for the $dK,dV$ pass and the $dQ$ pass, avoiding atomics between programs.
+
+The command \testcmd{uv run pytest -q tests/test\_attention.py -k 'test\_flash\_backward'} passed with 3 tests passed: the PyTorch backward test and the Triton backward tests for both causal and noncausal masking.
 
 \subsection{Problem (flash\_benchmarking): FlashAttention-2 Benchmarking}
 
