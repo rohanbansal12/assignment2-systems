@@ -617,7 +617,7 @@ FlashAttention is faster for every configuration in this sweep, with the largest
 
 \subsection{Problem (naive\_ddp): Naive DDP}
 
-\todoanswer{State implementation location, adapter hooks, and result of \testcmd{uv run pytest tests/test\_ddp.py}.}
+The DDP implementation is in \codepath{cs336\_systems/ddp.py}, with adapters wired in \codepath{tests/adapters.py}. The DDP tests passed.
 
 \subsection{Problem (naive\_ddp\_benchmarking): Naive DDP Benchmarking}
 
@@ -629,7 +629,7 @@ FlashAttention is faster for every configuration in this sweep, with the largest
 
 \subsection{Problem (ddp\_overlap\_individual\_parameters): DDP with Overlapping Individual Parameters}
 
-\todoanswer{State implementation location, hook strategy, adapter hooks, and repeated \testcmd{uv run pytest tests/test\_ddp.py} results.}
+The overlapped DDP implementation is in \codepath{cs336\_systems/ddp.py}, with adapters wired in \codepath{tests/adapters.py}. The DDP tests passed.
 
 \subsection{Problem (ddp\_overlap\_individual\_parameters\_benchmarking): DDP Overlapping Individual Parameters Benchmarking}
 
@@ -645,7 +645,7 @@ FlashAttention is faster for every configuration in this sweep, with the largest
 
 \subsection{Problem (optimizer\_state\_sharding): Optimizer State Sharding}
 
-\todoanswer{State implementation location, adapter hook, and repeated \testcmd{uv run pytest tests/test\_sharded\_optimizer.py} results.}
+The optimizer state sharding implementation is in \codepath{cs336\_systems/sharded\_optimizer.py}, with the adapter wired in \codepath{tests/adapters.py}. The sharded optimizer tests passed.
 
 \subsection{Problem (optimizer\_state\_sharding\_accounting): Optimizer State Sharding Accounting}
 
@@ -669,20 +669,20 @@ FlashAttention is faster for every configuration in this sweep, with the largest
   \todoanswer{Report iteration timings with and without optimizer state sharding.}
 
   \item \textbf{Comparison to ZeRO stage 1.}
-  \todoanswer{Summarize how this implementation differs from ZeRO-DP Pos, especially memory and communication volume.}
+  Our optimizer state sharding is similar to ZeRO stage 1 because each rank stores optimizer state for only a subset of parameters while full parameters and gradients remain replicated. The main difference is that our implementation shards at the granularity of whole parameter tensors using a simple round-robin assignment, which can be imbalanced, while ZeRO stage 1 partitions optimizer state more evenly across parameter elements. Our synchronization is also simpler: after each step, the owner rank broadcasts each updated parameter tensor to all other ranks, whereas optimized ZeRO implementations batch communication over flattened partitions to reduce overhead.
 \end{enumerate}
 
 \section{Fully-Sharded Data Parallel}
 
 \subsection{Problem (fsdp): Fully-Sharded Data Parallel}
 
-\todoanswer{State implementation location, layer wrapping/hook strategy, compute dtype behavior, adapter hook, and repeated \testcmd{uv run pytest tests/test\_fsdp.py} results.}
+The FSDP implementation is in \codepath{cs336\_systems/fsdp.py}, with adapters wired in \codepath{tests/adapters.py}. The FSDP tests passed.
 
 \subsection{Problem (fsdp\_accounting): FSDP Accounting}
 
 \begin{enumerate}
   \item \textbf{Expected memory savings.}
-  \todoanswer{Compute the expected peak memory savings relative to Section 6, ignoring preallocated all-gather buffers.}
+  Since optimizer state is sharded in both optimizer-state sharding and FSDP, the additional memory savings from FSDP come primarily from sharding parameters and gradients. With two GPUs, FSDP should reduce the memory for sharded Linear and Embedding parameters and their gradients by about $2\times$ per rank relative to the optimizer-state-sharded setup. Small unsharded parameters such as normalization weights remain replicated, but they are negligible compared to the model's large weight matrices.
 
   \item \textbf{All-gather timing.}
   \todoanswer{Report xl two-GPU profile timings and insert Nsight screenshots showing whether all-gather completes before forward computation needs the weights.}
@@ -692,64 +692,186 @@ FlashAttention is faster for every configuration in this sweep, with the largest
 
 \subsection{Problem (alternate\_ring\_all\_reduce): Alternate Ring All-Reduce}
 
-\todoanswer{Answer in terms of $S$, $N$, and $W$, with a one-sentence justification.}
+This algorithm takes $(N-1)S/W$ seconds, because each of the $N-1$ ring steps sends a full size-$S$ tensor from every device rather than a size-$S/N$ chunk.
 
 \subsection{Problem (data\_parallel\_calcs): Data Parallel Calculations}
 
 \begin{enumerate}
   \item \textbf{Backward FLOPs.}
-  \todoanswer{Give FLOPs in terms of $B$, $D$, $D_{\mathrm{FF}}$, and $N_{\mathrm{DP}}$.}
+  Per device, the backward pass takes
+  \[
+    \frac{12BD D_{\mathrm{FF}}}{N_{\mathrm{DP}}}
+  \]
+  FLOPs. There are six backward matmuls, each costing $2(B/N_{\mathrm{DP}})DD_{\mathrm{FF}}$: one for $dz$, two for $dx$, and three for the weight gradients.
 
   \item \textbf{Backward communication time.}
-  \todoanswer{Give communication time in terms of the relevant variables and $W$.}
+  The backward communication time is
+  \[
+    \frac{12(N_{\mathrm{DP}}-1)}{N_{\mathrm{DP}}}\frac{DD_{\mathrm{FF}}}{W}.
+  \]
+  The three weight gradients contain $3DD_{\mathrm{FF}}$ FP16 elements, or $6DD_{\mathrm{FF}}$ bytes, and ring all-reduce costs $2\frac{N_{\mathrm{DP}}-1}{N_{\mathrm{DP}}}\frac{S}{W}$.
 
   \item \textbf{Communication bottleneck threshold.}
-  \todoanswer{Give the inequality for $N_{\mathrm{DP}}$ and a one-sentence justification.}
+  Communication is not the bottleneck while
+  \[
+    N_{\mathrm{DP}} \le 1 + \frac{BW}{C}.
+  \]
+  This follows by comparing compute time $\frac{12BD D_{\mathrm{FF}}}{N_{\mathrm{DP}}C}$ with communication time $\frac{12(N_{\mathrm{DP}}-1)DD_{\mathrm{FF}}}{N_{\mathrm{DP}}W}$ and canceling the shared model-size factors.
 \end{enumerate}
 
 \subsection{Problem (fsdp\_calcs): Fully Sharded Data Parallel Calculations}
 
 \begin{enumerate}
   \item \textbf{Forward and backward FLOPs.}
-  \todoanswer{Give both FLOP expressions and justifications.}
+  Per device, the forward pass takes
+  \[
+    \frac{6BD D_{\mathrm{FF}}}{N_{\mathrm{FSDP}}},
+  \]
+  and the backward pass takes
+  \[
+    \frac{12BD D_{\mathrm{FF}}}{N_{\mathrm{FSDP}}}.
+  \]
+  FSDP shards the batch across devices, so each rank computes on $B/N_{\mathrm{FSDP}}$ examples; forward has three matmuls and backward has six.
 
   \item \textbf{Forward and backward communication time.}
-  \todoanswer{Give both communication-time expressions and justifications.}
+  The forward communication time is
+  \[
+    \frac{6(N_{\mathrm{FSDP}}-1)}{N_{\mathrm{FSDP}}}\frac{DD_{\mathrm{FF}}}{W},
+  \]
+  and the backward communication time is
+  \[
+    \frac{12(N_{\mathrm{FSDP}}-1)}{N_{\mathrm{FSDP}}}\frac{DD_{\mathrm{FF}}}{W}.
+  \]
+  The three weights contain $3DD_{\mathrm{FF}}$ FP16 elements, or $6DD_{\mathrm{FF}}$ bytes; forward all-gathers the weights once, while backward all-gathers the weights and reduce-scatters the gradients.
 
   \item \textbf{Bottleneck thresholds.}
-  \todoanswer{Give inequalities for backward and forward bottlenecks.}
+  Both forward and backward remain compute-bound while
+  \[
+    N_{\mathrm{FSDP}} \le 1 + \frac{BW}{C}.
+  \]
+  In each case, comparing communication against compute cancels the shared $D D_{\mathrm{FF}}$ factors and leaves the same threshold.
 \end{enumerate}
 
 \subsection{Problem (tp\_calcs): Tensor Parallel Calculations}
 
 \begin{enumerate}
   \item \textbf{Backward pass equations.}
-  \todoanswer{Write the tensor-parallel backward equations producing $dW_1^{(i)}$, $dW_2^{(i)}$, $dW_3^{(i)}$, and $dx$.}
+  Since the forward pass ends with an all-reduce, every TP rank receives the same incoming $dy \in \mathbb{R}^{B \times D}$. Each rank then computes its local gradients:
+  \[
+    dz^{(i)} = dy (W_3^{(i)})^\top,
+    \qquad
+    dW_3^{(i)} = (z^{(i)})^\top dy,
+  \]
+  \[
+    dx_2^{(i)} = dz^{(i)} \odot f(x_1^{(i)}),
+    \qquad
+    dx_1^{(i)} = dz^{(i)} \odot f'(x_1^{(i)}) \odot x_2^{(i)},
+  \]
+  \[
+    dW_2^{(i)} = x^\top dx_2^{(i)},
+    \qquad
+    dW_1^{(i)} = x^\top dx_1^{(i)}.
+  \]
+  The local contribution to the input gradient is
+  \[
+    dx^{(i)} = dx_1^{(i)}(W_1^{(i)})^\top + dx_2^{(i)}(W_2^{(i)})^\top,
+  \]
+  and the final input gradient is
+  \[
+    dx = \mathrm{all\text{-}reduce}\left(\{dx^{(i)}\}_{i=0}^{N_{\mathrm{TP}}-1}\right).
+  \]
 
   \item \textbf{Forward and backward FLOPs.}
-  \todoanswer{Give both FLOP expressions and one-sentence justifications.}
+  Per device, the forward pass takes
+  \[
+    \frac{6BD D_{\mathrm{FF}}}{N_{\mathrm{TP}}},
+  \]
+  and the backward pass takes
+  \[
+    \frac{12BD D_{\mathrm{FF}}}{N_{\mathrm{TP}}}.
+  \]
+  Each rank owns only $D_{\mathrm{FF}}/N_{\mathrm{TP}}$ of the FFN hidden dimension, so the three forward matmuls and six backward matmuls are reduced by a factor of $N_{\mathrm{TP}}$.
 
   \item \textbf{Forward and backward communication time.}
-  \todoanswer{Give both communication-time expressions and one-sentence justifications.}
+  The forward communication time is
+  \[
+    \frac{4BD(N_{\mathrm{TP}}-1)}{N_{\mathrm{TP}}W},
+  \]
+  and the backward communication time is the same:
+  \[
+    \frac{4BD(N_{\mathrm{TP}}-1)}{N_{\mathrm{TP}}W}.
+  \]
+  Forward all-reduces $y \in \mathbb{R}^{B \times D}$ and backward all-reduces $dx \in \mathbb{R}^{B \times D}$; each tensor has $BD$ FP16 elements, or $2BD$ bytes, and ring all-reduce costs $2\frac{N_{\mathrm{TP}}-1}{N_{\mathrm{TP}}}\frac{S}{W}$.
 
   \item \textbf{Bottleneck thresholds.}
-  \todoanswer{Give inequalities for backward and forward bottlenecks.}
+  The forward pass remains compute-bound while
+  \[
+    N_{\mathrm{TP}} \le 1 + \frac{3D_{\mathrm{FF}}W}{2C},
+  \]
+  and the backward pass remains compute-bound while
+  \[
+    N_{\mathrm{TP}} \le 1 + \frac{3D_{\mathrm{FF}}W}{C}.
+  \]
+  These follow by comparing the shared TP all-reduce communication time $\frac{4BD(N_{\mathrm{TP}}-1)}{N_{\mathrm{TP}}W}$ against the forward compute time $\frac{6BD D_{\mathrm{FF}}}{N_{\mathrm{TP}}C}$ and backward compute time $\frac{12BD D_{\mathrm{FF}}}{N_{\mathrm{TP}}C}$.
 \end{enumerate}
 
 \subsection{Problem (fsdp\_tp\_calcs): 2D Parallelism Calculations}
 
 \begin{enumerate}
   \item \textbf{Forward FLOPs.}
-  \todoanswer{Give the FSDP+TP forward FLOP expression and justification.}
+  Per device, the forward pass takes
+  \[
+    \frac{6BD D_{\mathrm{FF}}}{N_{\mathrm{TP}}N_{\mathrm{FSDP}}}
+  \]
+  FLOPs. FSDP shards the batch to $B/N_{\mathrm{FSDP}}$ examples per rank and TP shards the FFN hidden dimension to $D_{\mathrm{FF}}/N_{\mathrm{TP}}$ per rank, so each of the three forward matmuls costs $2\frac{B}{N_{\mathrm{FSDP}}}D\frac{D_{\mathrm{FF}}}{N_{\mathrm{TP}}}$ FLOPs.
 
   \item \textbf{Forward communication time with overlap.}
-  \todoanswer{Give the max of FSDP-axis and TP-axis communication costs.}
+  When the FSDP-axis and TP-axis collectives can overlap, the forward communication time is
+  \[
+    \max\left(
+      \frac{6(N_{\mathrm{FSDP}}-1)}{N_{\mathrm{FSDP}}}\frac{D D_{\mathrm{FF}}}{N_{\mathrm{TP}}W},
+      \frac{4(N_{\mathrm{TP}}-1)}{N_{\mathrm{TP}}}\frac{BD}{N_{\mathrm{FSDP}}W}
+    \right).
+  \]
+  The first term is the FSDP-axis all-gather of the three TP-sharded weights, and the second term is the TP-axis all-reduce of the FSDP-sharded output activation.
 
   \item \textbf{Optimal overlapped scaling threshold.}
-  \todoanswer{Derive the optimal $N=N_{\mathrm{TP}}N_{\mathrm{FSDP}}$ threshold when axes can overlap.}
+  Let $N=N_{\mathrm{TP}}N_{\mathrm{FSDP}}$. The forward compute time is
+  \[
+    \frac{6BD D_{\mathrm{FF}}}{N_{\mathrm{TP}}N_{\mathrm{FSDP}}C}.
+  \]
+  Requiring the FSDP-axis communication term to be no larger than compute gives
+  \[
+    N_{\mathrm{FSDP}} \le 1 + \frac{BW}{C},
+  \]
+  while requiring the TP-axis communication term to be no larger than compute gives
+  \[
+    N_{\mathrm{TP}} \le 1 + \frac{3D_{\mathrm{FF}}W}{2C}.
+  \]
+  Therefore, with the optimal split across the two axes, the total device count can scale to
+  \[
+    N \le \left(1 + \frac{BW}{C}\right)\left(1 + \frac{3D_{\mathrm{FF}}W}{2C}\right)
+  \]
+  before the overlapped forward pass becomes communication-bottlenecked.
 
   \item \textbf{Optimal non-overlapped scaling threshold.}
-  \todoanswer{Derive the optimal $N=N_{\mathrm{TP}}N_{\mathrm{FSDP}}$ threshold when axes share network resources.}
+  If the two axes cannot overlap, the communication time is the sum
+  \[
+    \frac{6(N_{\mathrm{FSDP}}-1)}{N_{\mathrm{FSDP}}}\frac{D D_{\mathrm{FF}}}{N_{\mathrm{TP}}W}
+    +
+    \frac{4(N_{\mathrm{TP}}-1)}{N_{\mathrm{TP}}}\frac{BD}{N_{\mathrm{FSDP}}W}.
+  \]
+  Comparing this to the forward compute time and multiplying through by $N_{\mathrm{TP}}N_{\mathrm{FSDP}}/D$ gives the constraint
+  \[
+    4B(N_{\mathrm{TP}}-1) + 6D_{\mathrm{FF}}(N_{\mathrm{FSDP}}-1)
+    \le
+    \frac{6BD_{\mathrm{FF}}W}{C}.
+  \]
+  Maximizing $N=N_{\mathrm{TP}}N_{\mathrm{FSDP}}$ under this linear constraint gives $4BN_{\mathrm{TP}}=6D_{\mathrm{FF}}N_{\mathrm{FSDP}}$, so
+  \[
+    N \le
+    \frac{\left(\frac{6BD_{\mathrm{FF}}W}{C}+4B+6D_{\mathrm{FF}}\right)^2}{96BD_{\mathrm{FF}}}.
+  \]
 \end{enumerate}
 
 \section{Leaderboard}
